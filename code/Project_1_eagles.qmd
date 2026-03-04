@@ -1,0 +1,574 @@
+---
+title: "Hunting Eagles: Understanding Eagles in Golf"
+author: "Mark Yan"
+format: 
+  pdf:
+    embed-resources: TRUE
+    indent: true
+
+---
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(mosaic)
+library(corrplot)
+library(rpart)
+library(rattle)
+library(randomForest)
+library(kableExtra)
+library(Metrics)
+library(factoextra)
+library(rvest)
+library(ggrepel)
+library(car)
+library(MASS)
+library(leaps)
+```
+
+```{r}
+eagles <- read_csv("eagles_25.csv")
+eagles$RANK = NULL
+eagles$MOVEMENT = NULL
+strokes_gained <- read_csv("strokes_gained_25.csv")
+strokes_gained$RANK = NULL
+strokes_gained$`MEASURED ROUNDS` = NULL
+strokes_gained$MOVEMENT = NULL
+
+### % = percent of the time where golfer goes for the green
+### 32/35 = golfer went for the green on 1st shot of par 4/2nd shot on par 5 32 times out of 35
+
+par_5_gfg <- read_csv("p_5_gfg_25.csv")
+
+par_5_gfg <- par_5_gfg %>% 
+  mutate(`%` = substr(`%`, 1, nchar(`%`) - 1)) %>% 
+  rename("gfg_pct" = `%`)
+
+par_5_gfg$RANK = NULL
+
+par_5_gfg$MOVEMENT = NULL
+par_5_gfg$total_chances = par_5_gfg$ATTEMPTS + par_5_gfg$`NON-ATTEMPTS` 
+
+#### Percentage of times + # of attempts a golfer goes for the green on short par 4s and par 5s
+
+gfg_stats <- read_csv("gfg_25.csv")
+
+gfg_stats <- gfg_stats %>% 
+  mutate(`%` = substr(`%`, 1, nchar(`%`) - 1)) %>% 
+  rename("gfg_pct" = `%`)
+
+gfg_stats <- gfg_stats %>% 
+  mutate(total_chances = `ATTEMPTS` + `NON-ATTEMPTS`)
+
+gfg_stats$RANK = NULL
+gfg_stats$MOVEMENT = NULL
+gfg_stats$`RTP-GOING FOR THE GREEN` = NULL
+gfg_stats$`RTP-NOT GOING FOR THE GRN` = NULL
+
+
+distance <- read_csv("distance_25.csv")
+distance$`TOTAL DRIVES` = NULL
+distance$`TOTAL DISTANCE` = NULL
+distance$RANK = NULL
+distance$MOVEMENT = NULL
+
+
+one_putt <- read_csv("one_putt_pct_25.csv")
+one_putt <- one_putt %>% 
+  mutate(`%` = substr(`%`, 1, nchar(`%`) - 1)) %>% 
+  rename("one_putt_pct" = `%`)
+
+one_putt$`# OF 1 PUTTS` = NULL
+one_putt$`# OF HOLES` = NULL
+one_putt$RANK = NULL
+one_putt$MOVEMENT = NULL
+
+eagle_dist <- read_csv("eagle_putt_dist_25.csv")
+eagle_dist$AVG = NULL
+eagle_dist$average_dist = eagle_dist$`TOT DIST (FT)`/eagle_dist$`TOT EAGLES PUTTS MADE.`
+
+eagle_dist$`SHORTEST MADE (FT)` = NULL
+eagle_dist$`LONGEST MADE (FT)` = NULL
+eagle_dist$RANK = NULL
+eagle_dist$MOVEMENT = NULL
+
+eagle_dist <- eagle_dist %>% 
+  rename("total_dist" = `TOT DIST (FT)`)
+
+eagle_dist <- eagle_dist %>% 
+  rename("putts_made" = `TOT EAGLES PUTTS MADE.`)
+
+fairways <- read_csv("fairway_pct_25.csv")
+fairways <- fairways %>% 
+  mutate(`%` = substr(`%`, 1, nchar(`%`) - 1)) %>% 
+  rename("fairway_pct" = `%`)
+
+fairways$RANK = NULL
+fairways$`FAIRWAYS HIT` = NULL
+fairways$MOVEMENT = NULL
+fairways$`POSSIBLE FAIRWAYS` = NULL
+
+green_hits <- read_csv("hit_greens_gfg_25.csv")
+green_hits <- green_hits %>% 
+  mutate(`%` = substr(`%`, 1, nchar(`%`) - 1)) %>% 
+  rename("green_pct" = `%`)
+
+green_hits$`RTP-NOT GOING FOR THE GRN` = NULL
+green_hits$`RTP-SUCCESSES` = NULL
+green_hits$RANK = NULL
+green_hits$MOVEMENT = NULL
+
+off_tee <- read_csv("off_tee_gained_25.csv")
+off_tee$RANK = NULL
+off_tee$MOVEMENT = NULL
+off_tee$`MEASURED ROUNDS` = NULL
+
+approach_gain <- read_csv("approach_gained_25.csv")
+approach_gain$RANK = NULL
+approach_gain$MOVEMENT = NULL
+approach_gain$`MEASURED ROUNDS` = NULL
+
+closest_to_pin <- read_csv("ctp_gfg_25.csv")
+closest_to_pin$RANK = NULL
+closest_to_pin$MOVEMENT = NULL
+closest_to_pin$`TOTAL DIST AFTER GFG SHOT` = NULL
+
+off_tee <- read_csv("off_tee_25.csv")
+off_tee$RANK = NULL
+off_tee$MOVEMENT = NULL
+off_tee$`MEASURED ROUNDS` = NULL
+
+```
+
+```{r}
+eagles <- inner_join(eagles, strokes_gained, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- eagles %>% 
+  rename("eagles" = `TOTAL`)
+eagles <- eagles %>% 
+  rename("avg_strokes_gained" = `AVG`)
+
+eagles <- inner_join(eagles, approach_gain, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- eagles %>% 
+  rename("avg_approach_gained" = `AVG`)
+
+eagles$`TOTAL SG:T2G` = NULL
+
+eagles <- inner_join(eagles, distance, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- eagles %>% 
+  rename("avg_dist" = `AVG`)
+
+eagles <- inner_join(eagles, off_tee, by = c("PLAYER_ID", "PLAYER"))
+eagles <- eagles %>% 
+  rename("avg_driving_gained" = `AVG`)
+
+eagles <- inner_join(eagles, fairways, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- inner_join(eagles, gfg_stats, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- inner_join(eagles, par_5_gfg, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- eagles %>% 
+  rename("gfg_attempts" = `ATTEMPTS.x`) %>% 
+  rename("gfg_non_attempts" = `NON-ATTEMPTS.x`) %>% 
+  rename("gfg_pct" = gfg_pct.x) %>% 
+  rename("gfg_pct_par_5" = gfg_pct.y) %>% 
+  rename("gfg_par_5_attempts" = `ATTEMPTS.y`) %>% 
+  rename("gfg_par_5_non_attempts" = `NON-ATTEMPTS.y`)
+
+eagles <- eagles %>% 
+  rename("gfg_chances" = total_chances.x) %>% 
+  rename("gfg_par_5_chances" = total_chances.y)
+
+
+eagles <- inner_join(eagles, green_hits, by = c("PLAYER_ID", "PLAYER"))
+eagles$SUCCESSES = NULL
+eagles$ATTEMPTS = NULL
+
+eagles <- inner_join(eagles, closest_to_pin, by = c("PLAYER_ID", "PLAYER"))
+eagles$`TOTAL GFG SHOTS` = NULL
+eagles <- eagles %>% 
+  rename("avg_dist_from_hole_gfg" = `AVG`)
+
+
+eagles <- inner_join(eagles, eagle_dist, by = c("PLAYER_ID", "PLAYER"))
+eagles <- eagles %>% 
+  rename("total_eagle_putt_dist" = total_dist) %>% 
+  rename("eagle_putts_made" = putts_made) %>% 
+  rename("avg_eagle_putt_dist" = average_dist)
+
+eagles <- inner_join(eagles, one_putt, by = c("PLAYER_ID", "PLAYER"))
+
+eagles <- eagles %>% 
+  rename("total_strokes_gained" = `TOTAL SG:T`) %>% 
+  rename("total_strokes_gained_putting" = `TOTAL SG:P`) %>% 
+  rename("total_strokes_gained_off_tee" = `TOTAL SG:OTT`) %>% 
+  rename("total_strokes_gained_approach" = `TOTAL SG:APP`)
+
+
+```
+
+```{r}
+eagles$fairway_pct <- as.numeric(eagles$fairway_pct)
+eagles$gfg_pct <- as.numeric(eagles$gfg_pct)
+eagles$gfg_pct_par_5 <- as.numeric(eagles$gfg_pct_par_5)
+eagles$green_pct <- as.numeric(eagles$green_pct)
+eagles$one_putt_pct <- as.numeric(eagles$one_putt_pct)
+
+```
+
+
+
+## Introduction
+
+In golf, nothing is taken for granted. Any sort of advantage that is out there, players will do whatever it takes to capitalize on them. One of those opportunities is the chance to get an eagle on a hole. An eagle is when a player completes a hole 2 shots under par. For example, a player can get an eagle if they complete a par 4 hole in 2 shots or a par 5 hole in 3 shots. In a tournament setting, an eagle can be a massive opportunity to gain a stroke or two on the competition, which can contribute to winning. So, what factors contribute to more eagles?
+
+To answer this question, I have collected a series of tables in the PGA Tour ShotLink database, merging them together to have a full table of 175 golfers and 26 variables. This consists of statistics from the 2025 PGA Tour season. All this information is collected using PGA Tour ShotLink data on pgatour.com/stats. The response variable is the number of eagles during the 2025 PGA Tour season. For the explanatory variables, they range from basic metrics like the percentage of times where a golfer goes for the green on a par 5 or a short par 4 (go-for-green), average eagle putt distance, and the percentage of greens hit after going for the green to name a few. It also includes metrics that serve as an indicator of player quality like strokes gained: putting, approach, and off-the-tee. Strokes gained is a metric that compares the golfer to the average golfer on tour. A positive strokes gained total/average indicates that the player is above-average in terms of shot quality. A negative strokes gained indicates that the player is below average in shot quality compared to the rest of the field. 
+
+
+
+## Exploratory Data Analysis
+
+```{r}
+#| label: fig-eagles-density
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Density plot of the distribution of eagles in the dataset
+#| fig-height: 3
+
+
+eagles %>% 
+  ggplot(aes(x = eagles)) + geom_density(fill = "blue") + labs(title = "Density Plot Eagles", subtitle = "2025 Season", x = "Eagles")
+
+```
+
+
+```{r}
+#| label: fig-eagles-hist
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Histogram of eagles during the 2025 PGA Tour season
+#| fig-height: 3
+
+eagles %>% 
+  ggplot(aes(x = eagles)) + geom_histogram(bins = 10, fill = "blue") + labs(title = "Histogram of Eagles", subtitle = "2025 Season", x = "Eagles")
+
+```
+
+
+Looking at @fig-eagles-density and @fig-eagles-hist, the number of eagles is a count variable as no one on the PGA Tour has a negative number of eagles and the distribution is skewed right. Most players on tour had between 5 and 10 eagles this past season. 
+
+
+```{r}
+#| label: fig-eagles-boxplot
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Boxplot of eagles in the 2025 PGA Tour Season
+#| fig-height: 3
+
+eagles %>% 
+  ggplot(aes(x = eagles)) + geom_boxplot() + labs(title = "Boxplot of Eagles", subtitle = "2025 Season", x = "Eagles")
+
+```
+
+
+In @fig-eagles-boxplot, there are two outliers at 17 and 19 eagles. The median number of eagles sits around 8. 
+
+
+## Model 1: Linear Regression
+
+```{r}
+eagles_lm <- lm(eagles ~ avg_strokes_gained + total_strokes_gained + total_strokes_gained_putting + avg_approach_gained + total_strokes_gained_approach + avg_dist + avg_driving_gained + total_strokes_gained_off_tee + fairway_pct + gfg_pct + gfg_attempts + gfg_non_attempts + gfg_pct_par_5 + gfg_par_5_attempts + gfg_par_5_non_attempts + green_pct + avg_dist_from_hole_gfg + total_eagle_putt_dist + avg_eagle_putt_dist + one_putt_pct, data = eagles)
+
+broom::tidy(eagles_lm)
+```
+
+
+#### Assumption Plots
+
+```{r}
+#| label: fig-linear-plots
+#| fig-pos: H
+#| fig-height: 4
+#| fig-cap-location: bottom
+#| fig-cap: Assumption plots for a linear model
+
+par(mfrow = c(2,2))
+
+plot(eagles_lm)
+
+```
+
+
+Regarding the assumptions of a linear model, we can assume that all observations are independent as there are 175 unique golfers in this data set associated with their own player ID. In terms of normality, the distribution is approximately normal enough to assume normality. However, there are some slight deviations around the tails. For the linearity assumption, the residuals are mostly scattered with few clusters, but the slope isn't exactly 0 as some points have influence in pulling the line from 0. However, the residual plot shows that the distribution is linear enough to continue. In terms of constant variance, this distribution violates that assumption. In the scale-location plot, variance increases as fitted values increase, which indicates non-constant variance.
+
+Overall, a linear model can be used, but some caution must be taken as the data doesn't meet all of the assumptions of a linear model. 
+
+
+## Model 2: Regular Poisson Model
+
+```{r}
+eagles_poisson <- glm(eagles~avg_strokes_gained + total_strokes_gained + total_strokes_gained_putting + avg_approach_gained + total_strokes_gained_approach + avg_dist + avg_driving_gained + total_strokes_gained_off_tee + fairway_pct + gfg_pct + gfg_attempts + gfg_non_attempts + gfg_pct_par_5 + gfg_par_5_attempts + gfg_par_5_non_attempts + green_pct + avg_dist_from_hole_gfg + total_eagle_putt_dist + avg_eagle_putt_dist + one_putt_pct, data = eagles, family = 'poisson')
+
+broom::tidy(eagles_poisson)
+```
+
+
+#### Mean(eagles)
+
+```{r}
+mean(eagles$eagles)
+```
+
+#### Variance(eagles)
+
+
+```{r}
+var(eagles$eagles)
+```
+
+#### Residual Plot
+
+```{r}
+#| label: fig-poisson-residual
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Residual v. Fitted plot for the poisson model
+#| fig-height: 3
+
+eagles_p <- eagles %>% 
+  mutate(residuals = eagles_poisson$residuals,
+         fitted_values = eagles_poisson$fitted.values)
+
+
+eagles_p %>% 
+  ggplot(aes(x = fitted_values, y = residuals)) + geom_point() + geom_smooth(method = "lm", se = FALSE, color = "red") + labs(title = "Poisson Residual Plot")
+
+```
+
+Regarding assumptions with the poisson model, the data violates 1 assumption. The data already meets the independence assumption given that the data is 175 unique golfers and the fact that the data already met the independence assumption for the linear model. The response variable is also discrete as no golfer can get less than 0 eagles or 2.5 eagles. @fig-poisson-residual also shows that $\ln(\lambda)$ is a linear function as the residual plot is mostly spread out and the slope is around 0 despite some tail at the end of the slope. However, the mean = variance assumption is violated as variance is greater than the mean, indicating overdispersion. 
+
+
+## Model 3: Negative Binomial
+
+```{r}
+max_iteration <- glm.control(maxit = 100)
+
+eagles_zero_binom <- glm.nb(eagles~avg_strokes_gained +  total_strokes_gained_putting + avg_approach_gained + total_strokes_gained_approach + avg_dist + avg_driving_gained + fairway_pct + gfg_pct + green_pct + avg_dist_from_hole_gfg + total_eagle_putt_dist + avg_eagle_putt_dist + one_putt_pct, data = eagles, control = max_iteration)
+
+broom::tidy(eagles_zero_binom)
+```
+
+#### Dispersion
+
+```{r}
+eagles_zero_binom$deviance/161
+```
+
+#### Residual Plot
+
+```{r}
+#| label: fig-neg-residual
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Residual v. Fitted Plot for negative binomial model
+#| fig-height: 3
+
+eagles2 <- eagles %>% 
+  mutate(residuals = eagles_zero_binom$residuals,
+         fitted_values = eagles_zero_binom$fitted.values)
+
+eagles2 %>% 
+  ggplot(aes(x = fitted_values, y = residuals)) + geom_point() + geom_smooth(method = "lm", se = FALSE, color = "red") + labs(title = "Negative Binomial Model Residual Plot")
+
+```
+
+
+With the negative binomial model, we're able to eliminate the issue of overdispersion as the dispersion parameter is below 1. Just like the poisson model, @fig-neg-residual shows plenty of patternless scatter with a slope of 0, indicating that $\ln(\lambda)$ is a linear function. However, since there is an iteration warning, the model never converges, which renders this model useless.
+
+
+
+#### Model Summary/Decision on Model
+
+For the linear and poisson models, they can be used, but they require a level of caution due to both models not meeting all the assumptions. For me, the linear model shouldn't be used because I don't think a linear model is appropriate for this count variable plus the fact that variance tends to increase as the value increases, which is concerning. For models that deal with overdispersion, the negative binomial would be my preferred choice as the differences in AIC and deviance are marginal between other models, but the fact that the negative binomial model deals with the issue of overdispersion, I would prefer the negative binomial model. However, since the model failed to converge within the max number of iterations, this model is rendered useless even though some of the redundant variables have been removed to hopefully make it work. With that being said, the final model will be a poisson model because we don't have enough evidence to suggest the model is a bad fit plus the AIC value isn't that much worse compared to other models. However, the fact that there is overdispersion present is concerning. 
+
+
+## Variable Selection Process
+
+#### Forward Stepwise
+
+```{r}
+eagles_null <- glm(eagles ~ 1, data = eagles, family = 'poisson')
+
+eagles_fw <- step(eagles_null, direction = "forward", scope = list(upper = eagles_poisson), trace = 0)
+
+summary(eagles_fw)
+```
+
+For a forward selection process, the process starts with the null model before adding on the variable that best explains the response variable, and repeating this process until adding another variable becomes unjustifiable, which occurs when marginal gains are outweighed by added model complexity. 
+
+In this process, forward selection only includes the total eagle putt distance, average eagle putt distance, the go-for-green percentage, and strokes gained on approach shots. Out of all these variables, both total and average eagle putt distance were significant while the go-for-green percentage was marginally significant. Strokes gained on approach shots was the only insignificant variable. 
+
+##### Deviance (full model)
+
+
+```{r}
+eagles_poisson$deviance
+```
+
+##### AIC (full model)
+
+```{r}
+eagles_poisson$aic
+```
+
+
+
+For the forward model, the model is better in terms of AIC (783 v. 804), but the deviance of the model has a sizable increase (77 to 88), which makes sense as there are less variables to explain random variability. 
+
+#### Hybrid Selection
+
+```{r}
+eagles_both <- step(eagles_poisson, direction = "both", trace = 0)
+
+
+summary(eagles_both)
+```
+
+For a hybrid selection process, the process begins similar to a forward stepwise, but every time a predictor gets added, the model is assessed with the option of adding another variable or removing a variable if the variable becomes insignificant. The process continues until the model doesn't improve. 
+
+The hybrid stepwise model consists of a golfer's average strokes gained total, total strokes gained: putting, average distance off the tee, the number of times a golfer goes for the green on a short par 4 or 2nd shot on a par 5, and both total and average eagle putt distance. Only average and total eagle putt distance were deemed significant with total strokes gained putting deemed marginally significant. Distance off the tee is deemed marginally insignificant while average strokes gained and go-for-green attempts were deemed insignificant. The intercept is insignificant, but that shouldn't affect the model a whole lot. 
+
+
+Similar to the forward model, the hybrid model has a better AIC (780 v 783), and has an increase in deviance. However, the increase in deviance is less than the forward selection model (82 v. 88). This might stem from the fact that there are more variables in this model that may explain more of the variability. 
+
+
+
+#### Subsets
+
+```{r}
+#| fig-pos: H
+#| fig-height: 4
+
+eagles_sub <- regsubsets(eagles~avg_strokes_gained + total_strokes_gained + total_strokes_gained_putting + avg_approach_gained + total_strokes_gained_approach + avg_dist + avg_driving_gained + total_strokes_gained_off_tee + fairway_pct + gfg_pct + gfg_attempts + gfg_non_attempts + gfg_pct_par_5 + gfg_par_5_attempts + gfg_par_5_non_attempts + green_pct + avg_dist_from_hole_gfg + total_eagle_putt_dist + avg_eagle_putt_dist + one_putt_pct, data = eagles)
+
+plot(eagles_sub)
+
+```
+
+```{r}
+eagles_best <- glm(eagles ~ total_strokes_gained_putting + avg_dist + gfg_attempts + avg_eagle_putt_dist + total_eagle_putt_dist, data = eagles, family = 'poisson')
+
+summary(eagles_best)
+```
+
+Best subsets finds the best set of variables using BIC. So, this model is the best combination of variables that contribute to the lowest BIC. 
+
+This method settled on the golfer's total strokes gained: putting, average distance off the tee, the number of times a golfer went for the green, and total and average eagle putt distance. Out of all these variables, only total and average eagle putt distance were deemed significant, with the number of go-for-green attempts deemed marginally significant. Average distance off the tee and total strokes gained putting were deemed marginally insignificant. The main concern with this model is that the intercept is deemed insignificant. 
+
+Just like the other models, there is added deviance (77 to 84), but a lower AIC value (780 v. 804). This model's increase in deviance is higher than the hybrid model (84 v. 82). There is one less variable in this model compared to the hybrid model, which may explain the slight increase in deviance. 
+
+#### Summary
+
+For the final model, we're rolling with the hybrid stepwise. Even though the intercept is deemed insignificant, the model has a slightly better AIC with less of an increase in deviance compared to the forward model and the best subsets model. The intercept being insignificant shouldn't have a major effect on model performance. 
+
+## Final Model Intepretation
+
+```{r}
+summary(eagles_both)
+```
+
+$$\ln(\lambda) = -.18 + .0703(avgstrokesgained) - .0029(totalstrokesgainedputting) + .0064(avgdist) + $$
+
+$$.0016(gfgattempts) + .0049(totaleagleputtdistance) - .0157(avgeagleputtdistance)$$
+
+##### Average Strokes Gained
+
+```{r}
+exp(.0703) - 1
+```
+
+##### Total Strokes Gained: Putting
+
+```{r}
+exp(-.00286) - 1
+```
+
+##### Average Driving Distance
+
+```{r}
+exp(.00641) - 1
+```
+
+
+##### Go-for-Green Attempts
+
+```{r}
+exp(.0016) - 1
+```
+
+##### Total Eagle Putt Distance
+
+```{r}
+exp(.00483) - 1
+```
+
+##### Average Eagle Putt Distance
+
+```{r}
+exp(-.0157) - 1
+```
+
+In this model, the only very significant variables were the total distance on eagle putts and the average eagle putt distance. Total strokes gained putting was deemed marginally significant. Average distance of the tee was deemed marginally insignificant, while both average strokes gained and go-for-green attempts were deemed insignificant. 
+
+For every one unit increase in average strokes gained, the model predicts a 7% increase in eagles. For every one unit increase in total strokes gained: putting, the model predicts a .29% decrease in eagles. For every 1 yard gained on average distance off the tee, the model predicts a .64% increase in the number of eagles. For every time a golfer goes for the green, the model predicts as .16% increase in eagles. For every additional foot in a golfer's cumulative distance on eagle putts, the model predicts a .484% increase in eagles. For every additional foot in a golfer's average distance on eagle putts, the model predicts a 1.56% decrease in eagles. 
+
+##### Residual Plot
+
+```{r}
+#| label: fig-final-residuals
+#| fig-pos: H
+#| fig-cap-location: bottom
+#| fig-cap: Residual plot for final model
+#| fig-height: 3
+
+eagles4 <- eagles %>% 
+  mutate(residuals = eagles_both$residuals,
+         fitted_values = eagles_both$fitted.values)
+
+
+eagles4 %>% 
+  ggplot(aes(x = fitted_values, y = residuals)) + geom_point() + geom_smooth(method = "lm", se = FALSE, color = "red") + labs(title = "Final Model Residual Plot")
+
+```
+
+
+##### Drop-in-Deviance
+
+```{r}
+1 - pchisq(eagles_both$deviance, eagles_both$df.residual)
+```
+
+
+In terms of model fit, @fig-final-residuals shows a scattered residual plot with no pattern, indicating that this model is a linear function of $\ln(\lambda)$. According the to the drop-in-deviance test, we fail to reject the null, indicating we don't have enough evidence to suggest that this model is a poor fit. However, we know that this model fails the mean = variance assumption as variance is greater than the mean. 
+
+## Discussion/Conclusion
+
+According to the model, the most significant factors that contribute to more eagles on the PGA Tour have to do with how far the putt for eagle is. In terms of total eagle putt distance, more distance is good because it means that the golfer has put themselves in position to putt for eagle. For average eagle putt distance, a smaller number is good as it means a golfer's eagle putts are shorter, which theoretically should increase one's chance of getting an eagle on the hole. Even though total strokes gained: putting was deemed marginally significant, its coefficient doesn't make sense, which probably means that its significance stemmed from overdispersion. So, for a golfer to get more eagles, they just have to put the ball closer to the hole as well as give themselves more eagle putts to get eagles. 
+
+I'm very surprised that there weren't any other factors beyond eagle putt length that contributed to more eagles. I thought the number of opportunities to get eagles and the percentage of times the player hit the green would be significant. In terms of improvements, the obvious thing is to simplify the model enough to create a negative binomial model to account for overdispersion. For the sake of conciseness, a quasipoisson wasn't tested. However, since a quasipoisson model deals with overdispersion, it would be a good model to try. The only downside is that since quasipoisson isn't a true likelihood model, it has no AIC value, which makes variable selection and model optimization difficult. 
+
+For future work, we could do the same thing but by course instead of the whole season. Given that many golfers tend to pick and choose what events they play in, there will be players that give themselves more opportunities to chase eagles because they've simply played more holes than other golfers. I think a model focused on each event would be more beneficial than using season data. The only downside is that only 70-ish golfers actually play 72 holes, so sample size would be an issue. 
+
+
+## References
+
+PGA TOUR. (n.d.). Stats. Retrieved March 3, 2026, from https://www.pgatour.com/stats/
+
